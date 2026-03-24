@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Data (local only)
+data/raw/
+data/cache/
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets
+.env
+.env.*
+secrets.yaml
+secrets.json
+config.local.yaml
+
+# Saved models
+models/saved/
+*.pkl
+*.joblib
+
+# Logs
+logs/
+*.log
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Reports output
+reports/output/
+
+.claude
+.pytest_cache/
