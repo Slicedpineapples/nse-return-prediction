@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nse"
+version = "0.1.0"
+description = "NSE Kenya daily alpha ranking system"
+requires-python = ">=3.11"
+dependencies = [
+    # Data
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy>=1.13",
+
+    # Database
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg2-binary>=2.9",
+
+    # Scraping / HTTP
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "pdfplumber>=0.11",       # parse NSE PDF price lists
+
+    # ML
+    "lightgbm>=4.3",
+    "scikit-learn>=1.4",
+
+    # LLM
+    "anthropic>=0.27",
+
+    # CLI / output
+    "click>=8.1",
+    "rich>=13.7",
+    "tabulate>=0.9",
+
+    # Config
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+
+    # Date handling
+    "python-dateutil>=2.9",
+    "holidays>=0.46",         # Kenya public holidays
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+    "ipykernel>=6.29",
+    "jupyter>=1.0",
+]
+
+[project.scripts]
+nse-ingest   = "nse.cli:ingest"
+nse-features = "nse.cli:features"
+nse-train    = "nse.cli:train"
+nse-backtest = "nse.cli:backtest"
+nse-signal   = "nse.cli:signal"
+nse-pipeline = "nse.cli:pipeline"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nse*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
