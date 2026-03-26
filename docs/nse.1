@@ -1,0 +1,259 @@
+.TH NSE 1 "March 2026" "ml.nse" "NSE Alpha Ranking System"
+.SH NAME
+nse-ingest, nse-features, nse-train, nse-backtest, nse-signal, nse-pipeline, nse-monitor \- NSE Daily Alpha Ranking System CLI
+.SH SYNOPSIS
+.B nse-ingest
+[\fB\-\-start\fR \fIDATE\fR] [\fB\-\-end\fR \fIDATE\fR] [\fB\-\-force\fR] [\fB\-v\fR]
+.br
+.B nse-features
+\fB\-\-start\fR \fIDATE\fR [\fB\-\-end\fR \fIDATE\fR] [\fB\-\-force\fR] [\fB\-v\fR]
+.br
+.B nse-train
+[\fB\-\-n\-months\fR \fIN\fR] [\fB\-\-prod\-only\fR] [\fB\-\-recency\-half\-life\fR \fIN\fR] [\fB\-v\fR]
+.br
+.B nse-backtest
+\fB\-\-start\fR \fIDATE\fR [\fB\-\-end\fR \fIDATE\fR] [\fB\-\-model\fR \fILABEL\fR] [\fB\-\-scenario\fR \fISCENARIO\fR] [\fB\-v\fR]
+.br
+.B nse-signal
+[\fB\-\-date\fR \fIDATE\fR] [\fB\-\-model\fR \fILABEL\fR] [\fB\-\-skip\-ingest\fR] [\fB\-\-skip\-llm\fR] [\fB\-v\fR]
+.br
+.B nse-pipeline
+[\fB\-\-date\fR \fIDATE\fR] [\fB\-\-model\fR \fILABEL\fR] [\fB\-\-skip\-ingest\fR] [\fB\-\-skip\-llm\fR] [\fB\-v\fR]
+.br
+.B nse-monitor
+[\fB\-\-start\fR \fIDATE\fR] [\fB\-\-end\fR \fIDATE\fR] [\fB\-\-window\fR \fIN\fR] [\fB\-\-backfill\fR] [\fB\-\-drift\fR] [\fB\-v\fR]
+.SH DESCRIPTION
+The NSE Alpha Ranking System is a daily batch pipeline that ranks a small
+universe of liquid Nairobi Securities Exchange (NSE) equities by expected
+net return after costs over the next 1\(en3 trading days.
+.PP
+MVP scope: long-only, top 5 names, human approval required, no autonomous
+execution.
+.PP
+Daily flow:
+.IP 1. 4
+\fBnse-ingest\fR \(em Aggregate OHLCV from the live \fInstocksdata\fR TimescaleDB
+hypertable, fetch NSE market stats, company announcements, and macro data
+(KES/USD, T-bills, CBK rate).
+.IP 2.
+\fBnse-features\fR \(em Compute \(ti50 features per ticker per day (returns,
+volatility, liquidity, events, macro, LLM-extracted sentiment) and write to
+\fIfeatures_daily\fR.
+.IP 3.
+\fBnse-train\fR \(em Walk-forward training of a LightGBM ranker on
+\fIlabel_3d_net_alpha = future_3d_return \(mi benchmark_return \(mi round_trip_cost\fR.
+.IP 4.
+\fBnse-backtest\fR \(em Replay the saved model on historical data and print
+Sharpe, drawdown, IC, hit-rate metrics.
+.IP 5.
+\fBnse-signal\fR \(em Score today\(aqs universe and write the ranked signal report.
+.IP 6.
+\fBnse-pipeline\fR \(em Run all five steps above in a single call.
+.IP 7.
+\fBnse-monitor\fR \(em Track live IC, hit rate, and optional feature drift (PSI).
+.SH COMMANDS
+.SS nse-ingest
+Download and store NSE prices, market stats, announcements, and macro data.
+.TP
+\fB\-\-start\fR \fIDATE\fR
+Start date in YYYY-MM-DD format. Default: 60 days ago.
+.TP
+\fB\-\-end\fR \fIDATE\fR
+End date in YYYY-MM-DD format. Default: today.
+.TP
+\fB\-\-force\fR
+Re-download even if data is already cached.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable debug logging.
+.SS nse-features
+Build \fIfeatures_daily\fR table for a date range.
+.TP
+\fB\-\-start\fR \fIDATE\fR
+Start date in YYYY-MM-DD format. \fBRequired.\fR
+.TP
+\fB\-\-end\fR \fIDATE\fR
+End date. Default: today.
+.TP
+\fB\-\-force\fR
+Force rebuild even if features already exist for the period.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable debug logging.
+.SS nse-train
+Walk-forward training; saves model artefact to \fImodels/saved/\fR.
+.TP
+\fB\-\-n\-months\fR \fIN\fR
+Number of walk-forward months to evaluate. Default: 12.
+.TP
+\fB\-\-prod\-only\fR
+Skip walk-forward evaluation; train the production model only (faster).
+.TP
+\fB\-\-recency\-half\-life\fR \fIN\fR
+Exponential sample-weight half-life in days (e.g.\& 90). Default: no weighting.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable debug logging.
+.SS nse-backtest
+Run backtest on historical data and print performance metrics.
+.TP
+\fB\-\-start\fR \fIDATE\fR
+Backtest start date in YYYY-MM-DD format. \fBRequired.\fR
+.TP
+\fB\-\-end\fR \fIDATE\fR
+Backtest end date. Default: today.
+.TP
+\fB\-\-model\fR \fILABEL\fR
+Model label to load from \fImodels/saved/\fR. Default: \fBproduction\fR.
+.TP
+\fB\-\-scenario\fR \fISCENARIO\fR
+Cost scenario: \fBoptimistic\fR (300 bps), \fBbase\fR (400 bps), or \fBstressed\fR (600 bps). Default: \fBbase\fR.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable debug logging.
+.SS nse-signal
+Score today\(aqs universe and write the ranked signal report.
+.TP
+\fB\-\-date\fR \fIDATE\fR
+Signal date in YYYY-MM-DD format. Default: today.
+.TP
+\fB\-\-model\fR \fILABEL\fR
+Model label. Default: \fBproduction\fR.
+.TP
+\fB\-\-skip\-ingest\fR
+Skip data ingestion; use whatever is already in the database.
+.TP
+\fB\-\-skip\-llm\fR
+Skip LLM (Claude API) extraction. Saves API cost; reuses yesterday\(aqs extractions.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable debug logging (default: on).
+.SS nse-pipeline
+Full daily batch: ingest \(-> LLM \(-> features \(-> score \(-> risk \(-> report.
+This is the single command to run each trading day.
+.TP
+\fB\-\-date\fR \fIDATE\fR
+Pipeline date in YYYY-MM-DD format. Default: today.
+.TP
+\fB\-\-model\fR \fILABEL\fR
+Model label. Default: \fBproduction\fR.
+.TP
+\fB\-\-skip\-ingest\fR
+Skip data ingestion; use whatever is already in the database.
+.TP
+\fB\-\-skip\-llm\fR
+Skip LLM extraction. Saves API cost.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable debug logging (default: on).
+.SS nse-monitor
+Live IC monitoring, hit rate, and optional feature drift check.
+.TP
+\fB\-\-start\fR \fIDATE\fR
+Start date. Default: 1 year ago.
+.TP
+\fB\-\-end\fR \fIDATE\fR
+End date. Default: today.
+.TP
+\fB\-\-window\fR \fIN\fR
+Rolling IC window in trading days. Default: 20.
+.TP
+\fB\-\-backfill\fR
+Run actuals backfill before reporting.
+.TP
+\fB\-\-drift\fR
+Also run PSI (Population Stability Index) feature drift check.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable debug logging.
+.SH EXAMPLES
+.SS One-time backfill and training
+.nf
+# Ingest 5 years of history
+nse-ingest --start 2019-01-01 --end 2024-12-31
+
+# Build features and labels
+nse-features --start 2019-01-01 --end 2024-12-31
+
+# Walk-forward evaluation + save production model
+nse-train
+
+# Quick validation
+nse-backtest --start 2024-01-01 --scenario base
+nse-backtest --start 2024-01-01 --scenario stressed
+.fi
+.SS Daily production run
+.nf
+# Full pipeline (run after NSE close or next morning)
+nse-pipeline
+
+# Skip LLM to save API cost
+nse-pipeline --skip-llm
+
+# Replay a specific past date
+nse-pipeline --date 2024-11-15
+
+# Score only (no re-ingest)
+nse-signal --skip-ingest
+.fi
+.SS Monitoring
+.nf
+# Rolling 20-day IC and hit rate, last 90 days
+nse-monitor --start 2025-01-01 --window 20
+
+# Include PSI drift check
+nse-monitor --drift
+
+# Backfill outcome ledger then report
+nse-monitor --backfill
+.fi
+.SH ENVIRONMENT
+.TP
+\fBANTHROPIC_API_KEY\fR
+Required for LLM event extraction. Skip with \fB\-\-skip\-llm\fR.
+.TP
+\fBDB_HOST\fR, \fBDB_PORT\fR, \fBDB_NAME\fR, \fBDB_USER\fR, \fBDB_PASS\fR, \fBDB_SSLMODE\fR
+Connection settings for the \fIml_nse\fR ML pipeline database.
+.TP
+\fBDB_NAME2\fR
+Name of the live scraper database (default: \fBnse\fR) containing the
+\fIstocksdata\fR TimescaleDB hypertable.
+.SH FILES
+.TP
+\fI.env\fR
+Environment variables file, loaded automatically at startup.
+.TP
+\fImodels/saved/ranker_production.pkl\fR
+Serialised production model artefact written by \fBnse-train\fR and read
+by \fBnse-signal\fR, \fBnse-pipeline\fR, and \fBnse-backtest\fR.
+.TP
+\fIreports/output/signal_YYYY-MM-DD.csv\fR
+Daily ranked signal report (CSV).
+.TP
+\fIreports/output/signal_YYYY-MM-DD.json\fR
+Daily ranked signal report (JSON).
+.TP
+\fIlogs/\fR
+Log files written during pipeline runs.
+.TP
+\fIscripts/completions/nse_completions.bash\fR
+Bash tab-completion. Source in \fI~/.bashrc\fR.
+.TP
+\fIscripts/completions/_nse\fR
+Zsh tab-completion. Add parent directory to \fIfpath\fR.
+.SH SEE ALSO
+.BR python (1),
+.BR pip (1)
+.PP
+Project repository: \fIml.nse\fR
+.br
+Technical report: \fIreports/NSE_Alpha_Ranking_System_Technical_Report.md\fR
+.SH NOTES
+This system is an advisory tool only. All signals require human review
+before execution. No trade is placed autonomously.
+.PP
+Universe: SCOM, EQTY, KCB, COOP, BAT, ABSA, SCBK, JUB, EABL, BAMB, NMG, BRIT
+(configurable in \fInse/config.py\fR).
+.PP
+Risk limits: max 5 positions, 20% single-name weight, 40% daily turnover,
+15% drawdown kill-switch, minimum model score 0.55.
