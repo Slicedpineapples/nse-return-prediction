@@ -57,3 +57,6 @@ tmp/
 NSE_Alpha_*.tex
 NSE_Alpha_*.pdf
 NSE_Alpha_*.md
+
+alembic/
+*.ini
