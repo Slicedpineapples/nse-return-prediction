@@ -8,6 +8,7 @@ Commands:
   nse-backtest  Run backtest on historical features + scores.
   nse-signal    Run daily pipeline and output signal report.
   nse-pipeline  Full end-to-end daily batch (ingest → signal).
+  nse-monitor   IC/hit-rate monitoring and feature drift report.
 """
 
 from __future__ import annotations
@@ -115,8 +116,10 @@ def features(start: str, end: str | None, force: bool, verbose: bool) -> None:
 @click.command()
 @click.option("--n-months", default=12, help="Walk-forward months to evaluate")
 @click.option("--prod-only", is_flag=True, help="Skip walk-forward; train production model only")
+@click.option("--recency-half-life", "recency_half_life", default=None, type=int,
+              help="Exponential sample weight half-life in days (e.g. 90). Default: no weighting.")
 @click.option("--verbose", "-v", is_flag=True)
-def train(n_months: int, prod_only: bool, verbose: bool) -> None:
+def train(n_months: int, prod_only: bool, recency_half_life: int | None, verbose: bool) -> None:
     """Walk-forward training; saves model to models/saved/."""
     _setup_logging(verbose)
     init_db()
@@ -133,9 +136,12 @@ def train(n_months: int, prod_only: bool, verbose: bool) -> None:
         results = run_walk_forward(features=feat, n_months=n_months)
         _print_walk_forward_summary(results)
 
-    console.print("Training production model...")
-    ranker = train_production_model(features=feat)
-    console.print(f"[green]Production model saved.[/green]")
+    if recency_half_life:
+        console.print(f"Training production model (recency half-life={recency_half_life}d)...")
+    else:
+        console.print("Training production model...")
+    ranker = train_production_model(features=feat, recency_half_life_days=recency_half_life)
+    console.print("[green]Production model saved.[/green]")
 
     # Feature importance
     fi = ranker.feature_importance().head(15)
@@ -261,6 +267,115 @@ def pipeline(
         skip_llm=skip_llm,
         verbose=verbose,
     )
+
+
+# ---------------------------------------------------------------------------
+# monitor
+# ---------------------------------------------------------------------------
+
+@click.command()
+@click.option("--start", default=None, help="Start date YYYY-MM-DD (default: 1 year ago)")
+@click.option("--end", default=None, help="End date YYYY-MM-DD (default: today)")
+@click.option("--window", default=20, help="Rolling IC window in trading days (default: 20)")
+@click.option("--backfill", is_flag=True, help="Run actuals backfill before reporting")
+@click.option("--drift", is_flag=True, help="Also run PSI feature drift check")
+@click.option("--verbose", "-v", is_flag=True)
+def monitor(
+    start: str | None,
+    end: str | None,
+    window: int,
+    backfill: bool,
+    drift: bool,
+    verbose: bool,
+) -> None:
+    """Live IC monitoring, hit rate, and optional drift check."""
+    _setup_logging(verbose)
+    init_db()
+
+    from datetime import timedelta
+
+    from nse.monitoring.ledger import backfill_actuals
+    from nse.monitoring.metrics import get_summary_stats
+
+    end_date = _parse_date(None, None, end)
+    start_date = _parse_date(None, None, start) if start else end_date - timedelta(days=365)
+
+    if backfill:
+        console.print("[blue]Backfilling actuals...[/blue]")
+        n = backfill_actuals(as_of=end_date)
+        console.print(f"  Updated {n} rows")
+
+    console.print(f"[blue]Computing signal metrics {start_date} → {end_date}[/blue]")
+    stats = get_summary_stats(start=start_date, end=end_date, window=window)
+
+    if stats["status"] == "no_data":
+        console.print("[yellow]No signal history found. Run nse-pipeline first.[/yellow]")
+        return
+
+    if stats["status"] == "insufficient_data":
+        console.print(
+            f"[yellow]Insufficient data: {stats['n_with_outcomes']} outcomes "
+            f"out of {stats['n_signals']} signals.[/yellow]"
+        )
+        return
+
+    # Summary table
+    from rich.table import Table
+
+    table = Table(title=f"Signal Performance  {start_date} → {end_date}", border_style="dim")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", justify="right")
+
+    def _fmt(v, fmt=".4f"):
+        return f"{v:{fmt}}" if v is not None else "N/A"
+
+    table.add_row("Signals (total)", str(stats["n_signals"]))
+    table.add_row("Outcomes filled", str(stats["n_with_outcomes"]))
+    ic_color = "green" if (stats["ic_overall"] or 0) > 0.05 else "red"
+    table.add_row("IC (overall)", f"[{ic_color}]{_fmt(stats['ic_overall'])}[/{ic_color}]")
+    table.add_row("IC p-value", _fmt(stats["ic_pvalue"]))
+    recent_color = "yellow" if stats.get("signal_degraded") else "green"
+    table.add_row(f"IC (last {window}d)", f"[{recent_color}]{_fmt(stats['ic_recent'])}[/{recent_color}]")
+    table.add_row("Hit rate (approved)", _fmt(stats["hit_rate"], ".2%") if stats["hit_rate"] else "N/A")
+    table.add_row("Mean alpha (bps)", _fmt(stats["mean_alpha_bps"], ".1f"))
+    table.add_row("Mean pred error (bps)", _fmt(stats["mean_pred_error_bps"], ".1f") if stats["mean_pred_error_bps"] is not None else "N/A")
+
+    console.print(table)
+
+    if stats.get("signal_degraded"):
+        console.print(
+            "[bold red]⚠  Recent IC is <50% of historical — consider retraining.[/bold red]"
+        )
+
+    # Score calibration
+    cal = stats.get("calibration")
+    if cal is not None and not cal.empty:
+        console.print("\n[bold]Score Calibration (quintiles)[/bold]")
+        console.print(cal.to_string(index=False))
+
+    # Drift check
+    if drift:
+        console.print("\n[blue]Checking feature drift (PSI)...[/blue]")
+        from nse.monitoring.drift import check_feature_drift
+        drift_df = check_feature_drift()
+        if drift_df.empty:
+            console.print("[yellow]Not enough data for drift check[/yellow]")
+        else:
+            from rich.table import Table as RTable
+            dtable = RTable(title="Feature Drift (PSI)", border_style="dim")
+            dtable.add_column("Feature", style="cyan")
+            dtable.add_column("PSI", justify="right")
+            dtable.add_column("Status")
+            for _, row in drift_df.iterrows():
+                status_color = {"stable": "green", "warning": "yellow", "alert": "bold red"}.get(
+                    row["status"], "white"
+                )
+                dtable.add_row(
+                    row["feature"],
+                    f"{row['psi']:.4f}" if row["psi"] is not None else "N/A",
+                    f"[{status_color}]{row['status']}[/{status_color}]",
+                )
+            console.print(dtable)
 
 
 # ---------------------------------------------------------------------------
