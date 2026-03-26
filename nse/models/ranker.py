@@ -89,12 +89,19 @@ class NSERanker:
         train_df: pd.DataFrame,
         val_df: pd.DataFrame | None = None,
         primary_label: str = MODEL["primary_label"],
+        recency_half_life_days: int | None = None,
     ) -> "NSERanker":
         """
         Train on train_df; use val_df for early stopping.
 
         Both DataFrames must have been through run_feature_pipeline and
         compute_and_store_labels.
+
+        Parameters
+        ----------
+        recency_half_life_days : if set, apply exponential sample weights so
+            that a row recency_half_life_days old has half the weight of today.
+            E.g. 90 means ~3 months half-life.  None disables weighting.
         """
         feature_cols = _get_feature_cols(train_df)
         self.feature_cols = feature_cols
@@ -102,6 +109,20 @@ class NSERanker:
         X_train, y_train = _prepare_xy(train_df, feature_cols, primary_label)
         if X_train.empty or y_train.isna().all():
             raise ValueError("Insufficient training data after filtering")
+
+        # Recency sample weights
+        sample_weight = None
+        if recency_half_life_days is not None and "date" in train_df.columns:
+            dates = pd.to_datetime(train_df.loc[X_train.index, "date"])
+            max_date = dates.max()
+            age_days = (max_date - dates).dt.days.clip(lower=0)
+            decay = np.log(2) / recency_half_life_days
+            sample_weight = np.exp(-decay * age_days).values
+            log.info(
+                "Recency weighting: half_life=%d days, weight range [%.3f, 1.0]",
+                recency_half_life_days,
+                sample_weight.min(),
+            )
 
         # Fit scaler
         X_train_scaled = pd.DataFrame(
@@ -126,6 +147,8 @@ class NSERanker:
         fit_kwargs: dict[str, Any] = {}
         if eval_set:
             fit_kwargs["eval_set"] = eval_set
+        if sample_weight is not None:
+            fit_kwargs["sample_weight"] = sample_weight
         self.regressor.fit(X_train_scaled, y_train, **fit_kwargs)
 
         # Optional classifier
@@ -137,6 +160,8 @@ class NSERanker:
             if eval_set and val_df is not None:
                 y_val_cls = val_df.loc[X_val.index, "label_top_bucket"].fillna(0)
                 cls_kwargs["eval_set"] = [(X_val_scaled, y_val_cls)]
+            if sample_weight is not None:
+                cls_kwargs["sample_weight"] = sample_weight
             self.classifier.fit(X_train_scaled, y_cls, **cls_kwargs)
 
         self.is_fitted = True

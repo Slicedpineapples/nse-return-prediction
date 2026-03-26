@@ -1,5 +1,5 @@
 """
-SQLAlchemy ORM schema for the six core NSE tables.
+SQLAlchemy ORM schema for the core NSE tables.
 
 Tables
 ------
@@ -9,6 +9,7 @@ issuer_events      – one row per announcement / corporate event
 macro_daily        – one row per day (KES/USD, T-bills, CBK rate, inflation)
 features_daily     – one row per ticker per day after feature engineering
 trades_simulated   – one row per simulated order fill
+signal_history     – prediction ledger: one row per ticker per signal date
 """
 
 from __future__ import annotations
@@ -271,6 +272,39 @@ class TradeSimulated(Base):
     realized_return_net = Column(Float)
     scenario = Column(String(16))             # 'optimistic'|'base'|'stressed'
     run_id = Column(String(64), index=True)   # backtest run identifier
+
+
+# ---------------------------------------------------------------------------
+# 7. signal_history  (prediction ledger)
+# ---------------------------------------------------------------------------
+
+class SignalHistory(Base):
+    """
+    One row per ticker per signal date.  Populated by the daily pipeline
+    when signals are generated; outcome columns filled in ~3 days later
+    by the backfill job in nse.monitoring.ledger.
+    """
+    __tablename__ = "signal_history"
+    __table_args__ = (UniqueConstraint("signal_date", "ticker", name="uq_signal_date_ticker"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    signal_date = Column(Date, nullable=False, index=True)
+    ticker = Column(String(16), nullable=False, index=True)
+
+    # --- Prediction ---
+    rank = Column(Integer)                     # rank on the day (1 = top)
+    score = Column(Float)                      # raw model score
+    predicted_edge_bps = Column(Float)         # expected alpha in bps
+    approved = Column(Boolean, default=False)  # passed human/liquidity filter?
+    model_label = Column(String(64))           # e.g. 'lgbm_v3'
+
+    # --- Outcome (filled ~3 trading days later) ---
+    actual_return_3d = Column(Float)           # close[t+3]/close[t] - 1
+    actual_net_alpha_3d = Column(Float)        # actual return - benchmark - costs
+    prediction_error = Column(Float)           # actual_net_alpha_3d - predicted_edge_bps/10000
+    outcome_filled_at = Column(DateTime)       # when actuals were written
+
+    created_at = Column(DateTime)              # when the signal was generated
 
 
 # ---------------------------------------------------------------------------

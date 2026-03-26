@@ -1,0 +1,95 @@
+#compdef nse-ingest nse-features nse-train nse-backtest nse-signal nse-pipeline nse-monitor
+#
+# NSE CLI — zsh completion
+#
+# Installation (pick one):
+#
+#   Temporary (current shell):
+#     source /path/to/_nse
+#
+#   Via fpath (recommended — add to ~/.zshrc before compinit):
+#     fpath=(/path/to/ml.nse/scripts/completions $fpath)
+#     autoload -Uz compinit && compinit
+#
+#   System-wide (macOS):
+#     cp _nse /usr/local/share/zsh/site-functions/
+
+_nse_date_msg='date (YYYY-MM-DD)'
+_nse_model_msg='model label'
+_nse_int_msg='integer'
+
+_nse_commands() {
+    case $service in
+
+        nse-ingest)
+            _arguments -s \
+                "--start[$_nse_date_msg, default 60 days ago]:$_nse_date_msg:" \
+                "--end[$_nse_date_msg, default today]:$_nse_date_msg:" \
+                '--force[Re-download even if already cached]' \
+                '(-v --verbose)'{-v,--verbose}'[Enable debug logging]' \
+                '--help[Show help and exit]'
+            ;;
+
+        nse-features)
+            _arguments -s \
+                "--start[Start date YYYY-MM-DD (required)]:$_nse_date_msg:" \
+                "--end[$_nse_date_msg, default today]:$_nse_date_msg:" \
+                '--force[Force rebuild even if features exist]' \
+                '(-v --verbose)'{-v,--verbose}'[Enable debug logging]' \
+                '--help[Show help and exit]'
+            ;;
+
+        nse-train)
+            _arguments -s \
+                '--n-months[Walk-forward months to evaluate, default 12]:integer:' \
+                '--prod-only[Skip walk-forward; train production model only]' \
+                '--recency-half-life[Exponential sample-weight half-life in days (e.g. 90)]:integer:' \
+                '(-v --verbose)'{-v,--verbose}'[Enable debug logging]' \
+                '--help[Show help and exit]'
+            ;;
+
+        nse-backtest)
+            _arguments -s \
+                "--start[Backtest start date YYYY-MM-DD (required)]:$_nse_date_msg:" \
+                "--end[$_nse_date_msg, default today]:$_nse_date_msg:" \
+                "--model[$_nse_model_msg, default production]:label:" \
+                '--scenario[Cost scenario]:scenario:(optimistic base stressed)' \
+                '(-v --verbose)'{-v,--verbose}'[Enable debug logging]' \
+                '--help[Show help and exit]'
+            ;;
+
+        nse-signal)
+            _arguments -s \
+                "--date[Signal date YYYY-MM-DD, default today]:$_nse_date_msg:" \
+                "--model[$_nse_model_msg, default production]:label:" \
+                '--skip-ingest[Use existing DB data; skip ingestion]' \
+                '--skip-llm[Skip LLM extraction (saves API cost)]' \
+                '(-v --verbose)'{-v,--verbose}'[Enable debug logging]' \
+                '--help[Show help and exit]'
+            ;;
+
+        nse-pipeline)
+            _arguments -s \
+                "--date[Pipeline date YYYY-MM-DD, default today]:$_nse_date_msg:" \
+                "--model[$_nse_model_msg, default production]:label:" \
+                '--skip-ingest[Use existing DB data; skip ingestion]' \
+                '--skip-llm[Skip LLM extraction (saves API cost)]' \
+                '(-v --verbose)'{-v,--verbose}'[Enable debug logging]' \
+                '--help[Show help and exit]'
+            ;;
+
+        nse-monitor)
+            _arguments -s \
+                "--start[$_nse_date_msg, default 1 year ago]:$_nse_date_msg:" \
+                "--end[$_nse_date_msg, default today]:$_nse_date_msg:" \
+                '--window[Rolling IC window in trading days, default 20]:integer:' \
+                '--backfill[Run actuals backfill before reporting]' \
+                '--drift[Also run PSI feature drift check]' \
+                '(-v --verbose)'{-v,--verbose}'[Enable debug logging]' \
+                '--help[Show help and exit]'
+            ;;
+
+    esac
+}
+
+_nse_commands "$@"

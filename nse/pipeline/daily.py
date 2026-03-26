@@ -35,6 +35,7 @@ from nse.ingest.market_live import ingest_market_from_stocksdata
 from nse.ingest.prices_live import ingest_prices_from_stocksdata, load_prices
 from nse.llm.extractor import generate_trade_explanation, process_batch
 from nse.models.ranker import NSERanker
+from nse.monitoring.ledger import backfill_actuals, save_signals
 from nse.risk.rules import RiskEngine, compute_position_limits
 
 log = logging.getLogger(__name__)
@@ -72,6 +73,14 @@ def run_daily_pipeline(
 
     if verbose:
         console.rule(f"[bold blue]NSE Daily Pipeline — {as_of}")
+
+    # Backfill outcomes for signals from ~3 days ago
+    try:
+        n_backfilled = backfill_actuals(as_of=as_of)
+        if verbose and n_backfilled:
+            console.print(f"[dim]Backfilled actuals for {n_backfilled} past signals[/dim]")
+    except Exception as exc:
+        log.warning("Actuals backfill failed (non-fatal): %s", exc)
 
     # Step 1: Ingest prices, market stats, macro
     if not skip_ingest:
@@ -159,6 +168,15 @@ def run_daily_pipeline(
     out_path = _save_report(report, as_of)
     if verbose:
         console.print(f"\n[green]Report saved: {out_path}[/green]")
+
+    # Persist signals to prediction ledger
+    try:
+        ledger_df = report.copy()
+        ledger_df["approved"] = ledger_df["recommended_action"] == "LONG"
+        ledger_df["predicted_edge_bps"] = ledger_df["expected_edge_after_costs_bps"]
+        save_signals(signal_date=as_of, ranked=ledger_df, model_label=model_label)
+    except Exception as exc:
+        log.warning("Signal ledger save failed (non-fatal): %s", exc)
 
     return report
 

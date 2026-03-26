@@ -109,18 +109,36 @@ def run_walk_forward(
     return results
 
 
-def train_production_model(features: pd.DataFrame | None = None) -> NSERanker:
+def train_production_model(
+    features: pd.DataFrame | None = None,
+    recency_half_life_days: int | None = None,
+    champion_eval_days: int = 60,
+) -> NSERanker:
     """
     Train the production model on all data up to validate_start.
     Uses validate period as early-stopping set.
 
-    Returns fitted NSERanker, also saved to disk.
+    Champion/challenger: the new (challenger) model is evaluated against the
+    current incumbent (champion) on the last `champion_eval_days` of labelled
+    data.  The challenger is deployed only if its IC exceeds the champion's.
+
+    Parameters
+    ----------
+    recency_half_life_days : passed to NSERanker.fit() for exponential
+        sample weighting.  None = uniform weights.
+    champion_eval_days     : number of days of recent labelled data to use
+        for champion vs challenger comparison.
+
+    Returns fitted NSERanker (champion or challenger), saved to disk as
+    'production'.  If a challenger wins, the previous champion is archived as
+    'production_prev'.
     """
     if features is None:
         features = load_features(tradable_only=False)
 
     validate_start = _parse_date(MODEL["validate_start"])
     test_start = _parse_date(MODEL["test_start"])
+    label = MODEL["primary_label"]
 
     train_df = features[features["date"].dt.date < validate_start].copy()
     val_df = features[
@@ -128,10 +146,44 @@ def train_production_model(features: pd.DataFrame | None = None) -> NSERanker:
         & (features["date"].dt.date < test_start)
     ].copy()
 
-    ranker = NSERanker(run_id="production")
-    ranker.fit(train_df, val_df)
-    ranker.save("production")
-    return ranker
+    # Challenger: new model trained on all available data
+    challenger = NSERanker(run_id="challenger")
+    challenger.fit(train_df, val_df, recency_half_life_days=recency_half_life_days)
+
+    # Evaluation window: most recent labelled data
+    eval_df = features.dropna(subset=[label]).copy()
+    if not eval_df.empty:
+        eval_cutoff = eval_df["date"].max() - pd.Timedelta(days=champion_eval_days)
+        eval_df = eval_df[eval_df["date"] >= eval_cutoff]
+
+    challenger_ic, _ = _eval_ic(challenger, eval_df, label)
+
+    # Try loading existing champion
+    from nse.config import MODELS_DIR
+    champion_path = MODELS_DIR / "ranker_production.pkl"
+    if champion_path.exists() and not eval_df.empty:
+        try:
+            champion = NSERanker.load("production")
+            champion_ic, _ = _eval_ic(champion, eval_df, label)
+            log.info(
+                "Champion/challenger: champion_IC=%.4f  challenger_IC=%.4f (eval_days=%d)",
+                champion_ic, challenger_ic, champion_eval_days,
+            )
+            if challenger_ic > champion_ic:
+                log.info("Challenger wins — deploying as new production model")
+                import shutil
+                shutil.copy(champion_path, MODELS_DIR / "ranker_production_prev.pkl")
+            else:
+                log.info("Champion holds — keeping existing production model")
+                return champion
+        except Exception as exc:
+            log.warning("Could not load/eval champion: %s — deploying challenger", exc)
+    else:
+        log.info("No incumbent champion found — deploying challenger directly")
+
+    challenger.run_id = "production"
+    challenger.save("production")
+    return challenger
 
 
 # ---------------------------------------------------------------------------

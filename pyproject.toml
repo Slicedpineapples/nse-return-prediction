@@ -18,11 +18,8 @@ dependencies = [
     "alembic>=1.13",
     "psycopg2-binary>=2.9",
 
-    # Scraping / HTTP
+    # HTTP (used by Ollama client)
     "requests>=2.31",
-    "beautifulsoup4>=4.12",
-    "lxml>=5.0",
-    "pdfplumber>=0.11",       # parse NSE PDF price lists
 
     # ML
     "lightgbm>=4.3",
@@ -61,6 +58,7 @@ nse-train    = "nse.cli:train"
 nse-backtest = "nse.cli:backtest"
 nse-signal   = "nse.cli:signal"
 nse-pipeline = "nse.cli:pipeline"
+nse-monitor  = "nse.cli:monitor"
 
 [tool.setuptools.packages.find]
 where = ["."]
