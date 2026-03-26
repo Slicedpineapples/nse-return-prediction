@@ -113,6 +113,48 @@ This creates all tables in `ml_nse`. The `nse` database already exists and is ma
 
 ---
 
+## Shell completion & man page
+
+### Tab completion
+
+**Zsh** (add to `~/.zshrc` before `compinit`):
+
+```zsh
+fpath=(/path/to/ml.nse/scripts/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+Or source directly for the current session:
+
+```zsh
+source ml.nse/scripts/completions/_nse
+```
+
+**Bash** (add to `~/.bashrc` or `~/.bash_profile`):
+
+```bash
+source /path/to/ml.nse/scripts/completions/nse_completions.bash
+```
+
+Both scripts complete all flags for every `nse-*` command, including
+`--scenario (optimistic|base|stressed)` choices.
+
+### Man page
+
+Install locally:
+
+```bash
+# view without installing
+man docs/nse.1
+
+# install to your local man path
+mkdir -p ~/.local/share/man/man1
+cp docs/nse.1 ~/.local/share/man/man1/
+man nse
+```
+
+---
+
 ## Running the pipeline
 
 ### 1. Backfill historical data (once)
