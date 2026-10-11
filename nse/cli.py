@@ -379,6 +379,47 @@ def monitor(
 
 
 # ---------------------------------------------------------------------------
+# intraday
+# ---------------------------------------------------------------------------
+
+@click.command()
+@click.option("--date", "as_of_str", default=None, help="Session date YYYY-MM-DD (default: today)")
+@click.option("--model", "model_label", default="production")
+@click.option("--no-daily-score", "no_daily_score", is_flag=True,
+              help="Rank purely on intraday signals; skip base model score")
+@click.option("--ingest", is_flag=True,
+              help="Pull latest snapshots from live_stock_data before scoring")
+@click.option("--verbose", "-v", is_flag=True, default=True)
+def intraday(
+    as_of_str: str | None,
+    model_label: str,
+    no_daily_score: bool,
+    ingest: bool,
+    verbose: bool,
+) -> None:
+    """Score the current session using intraday order book and flow data."""
+    _setup_logging(verbose)
+    init_db()
+
+    from nse.pipeline.intraday import run_intraday_pipeline
+
+    as_of = _parse_date(None, None, as_of_str)
+
+    if ingest:
+        from nse.ingest.live_prices import ingest_live_prices
+        console.print(f"[blue]Ingesting live snapshots for {as_of}...[/blue]")
+        n_daily, n_intra = ingest_live_prices(as_of, as_of, intraday=True)
+        console.print(f"[green]Ingested: {n_daily} EOD rows, {n_intra} intraday snapshots[/green]")
+
+    run_intraday_pipeline(
+        as_of=as_of,
+        model_label=model_label,
+        use_daily_score=not no_daily_score,
+        verbose=verbose,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Walk-forward summary helper
 # ---------------------------------------------------------------------------
 

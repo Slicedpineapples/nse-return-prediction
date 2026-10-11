@@ -57,8 +57,9 @@ nse-features = "nse.cli:features"
 nse-train    = "nse.cli:train"
 nse-backtest = "nse.cli:backtest"
 nse-signal   = "nse.cli:signal"
-nse-pipeline = "nse.cli:pipeline"
-nse-monitor  = "nse.cli:monitor"
+nse-pipeline  = "nse.cli:pipeline"
+nse-monitor   = "nse.cli:monitor"
+nse-intraday  = "nse.cli:intraday"
 
 [tool.setuptools.packages.find]
 where = ["."]

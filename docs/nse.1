@@ -1,4 +1,4 @@
-.TH NSE 1 "March 2026" "ml.nse" "NSE Alpha Ranking System"
+.TH NSE 1 "April 2026" "ml.nse" "NSE Alpha Ranking System"
 .SH NAME
 nse-ingest, nse-features, nse-train, nse-backtest, nse-signal, nse-pipeline, nse-monitor \- NSE Daily Alpha Ranking System CLI
 .SH SYNOPSIS
@@ -24,13 +24,13 @@ nse-ingest, nse-features, nse-train, nse-backtest, nse-signal, nse-pipeline, nse
 [\fB\-\-start\fR \fIDATE\fR] [\fB\-\-end\fR \fIDATE\fR] [\fB\-\-window\fR \fIN\fR] [\fB\-\-backfill\fR] [\fB\-\-drift\fR] [\fB\-v\fR]
 .SH DESCRIPTION
 The NSE Alpha Ranking System is a daily batch pipeline that ranks a small
-universe of liquid Nairobi Securities Exchange (NSE) equities by expected
-net return after costs over the next 1\(en3 trading days.
+universe of Nairobi Securities Exchange (NSE) equities by expected short-horizon
+alpha after benchmark adjustment and trading costs.
 .PP
 MVP scope: long-only, top 5 names, human approval required, no autonomous
 execution.
 .PP
-Daily flow:
+Current daily flow:
 .IP 1. 4
 \fBnse-ingest\fR \(em Aggregate OHLCV from the live \fInstocksdata\fR TimescaleDB
 hypertable, fetch NSE market stats, company announcements, and macro data
@@ -46,9 +46,9 @@ volatility, liquidity, events, macro, LLM-extracted sentiment) and write to
 \fBnse-backtest\fR \(em Replay the saved model on historical data and print
 Sharpe, drawdown, IC, hit-rate metrics.
 .IP 5.
-\fBnse-signal\fR \(em Score today\(aqs universe and write the ranked signal report.
+\fBnse-signal\fR \(em Run the current daily scoring pipeline and write the ranked signal report.
 .IP 6.
-\fBnse-pipeline\fR \(em Run all five steps above in a single call.
+\fBnse-pipeline\fR \(em Run the same daily pipeline entry point as \fBnse-signal\fR.
 .IP 7.
 \fBnse-monitor\fR \(em Track live IC, hit rate, and optional feature drift (PSI).
 .SH COMMANDS
@@ -92,6 +92,11 @@ Skip walk-forward evaluation; train the production model only (faster).
 \fB\-\-recency\-half\-life\fR \fIN\fR
 Exponential sample-weight half-life in days (e.g.\& 90). Default: no weighting.
 .TP
+Behavior note
+Production training includes a champion/challenger comparison against the
+current saved \fBproduction\fR model on recent labelled data. The challenger
+is deployed only if it outperforms the incumbent.
+.TP
 \fB\-v\fR, \fB\-\-verbose\fR
 Enable debug logging.
 .SS nse-backtest
@@ -124,10 +129,14 @@ Model label. Default: \fBproduction\fR.
 Skip data ingestion; use whatever is already in the database.
 .TP
 \fB\-\-skip\-llm\fR
-Skip LLM (Claude API) extraction. Saves API cost; reuses yesterday\(aqs extractions.
+Skip LLM extraction. Saves API cost.
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
 Enable debug logging (default: on).
+.TP
+Behavior note
+This command currently calls the same \fBrun_daily_pipeline()\fR implementation
+as \fBnse-pipeline\fR.
 .SS nse-pipeline
 Full daily batch: ingest \(-> LLM \(-> features \(-> score \(-> risk \(-> report.
 This is the single command to run each trading day.
@@ -187,13 +196,13 @@ nse-backtest --start 2024-01-01 --scenario stressed
 # Full pipeline (run after NSE close or next morning)
 nse-pipeline
 
-# Skip LLM to save API cost
+# Skip LLM extraction to save API cost
 nse-pipeline --skip-llm
 
 # Replay a specific past date
 nse-pipeline --date 2024-11-15
 
-# Score only (no re-ingest)
+# Same daily pipeline, but skip ingestion
 nse-signal --skip-ingest
 .fi
 .SS Monitoring
@@ -212,12 +221,19 @@ nse-monitor --backfill
 \fBANTHROPIC_API_KEY\fR
 Required for LLM event extraction. Skip with \fB\-\-skip\-llm\fR.
 .TP
+\fBLLM_PROVIDER\fR, \fBANTHROPIC_MODEL\fR, \fBOLLAMA_MODEL\fR, \fBOLLAMA_BASE_URL\fR
+Optional LLM provider configuration. Anthropic is the default provider.
+.TP
 \fBDB_HOST\fR, \fBDB_PORT\fR, \fBDB_NAME\fR, \fBDB_USER\fR, \fBDB_PASS\fR, \fBDB_SSLMODE\fR
 Connection settings for the \fIml_nse\fR ML pipeline database.
 .TP
 \fBDB_NAME2\fR
 Name of the live scraper database (default: \fBnse\fR) containing the
 \fIstocksdata\fR TimescaleDB hypertable.
+.TP
+Runtime note
+If \fBDB_HOST\fR is not set, the application falls back to a local SQLite
+database at \fIdata/nse.db\fR.
 .SH FILES
 .TP
 \fI.env\fR
@@ -235,6 +251,10 @@ Daily ranked signal report (JSON).
 .TP
 \fIlogs/\fR
 Log files written during pipeline runs.
+.TP
+\fIscripts/diagnose_signals.py\fR
+Diagnostic utility for checking signal coverage, backfill status, data-quality
+flags, and label distribution.
 .TP
 \fIscripts/completions/nse_completions.bash\fR
 Bash tab-completion. Source in \fI~/.bashrc\fR.
@@ -257,3 +277,7 @@ Universe: SCOM, EQTY, KCB, COOP, BAT, ABSA, SCBK, JUB, EABL, BAMB, NMG, BRIT
 .PP
 Risk limits: max 5 positions, 20% single-name weight, 40% daily turnover,
 15% drawdown kill-switch, minimum model score 0.55.
+.PP
+Implementation note: the primary training label still uses the base 400 bps
+round-trip cost assumption on a 3-trading-day horizon. See
+\fIROOT_CAUSE_ANALYSIS.md\fR for the current discussion of that limitation.

@@ -17,10 +17,12 @@ from sqlalchemy.dialects.postgresql import insert
 
 from nse.db.schema import FeaturesDaily, session_scope
 from nse.features.event_features import compute_event_features
+from nse.features.intraday_features import compute_intraday_features
 from nse.features.liquidity_features import compute_liquidity_features, compute_tradability
 from nse.features.macro_features import compute_macro_features
 from nse.features.price_features import compute_price_features
 from nse.ingest.announcements_live import load_events
+from nse.ingest.live_prices import LIVE_DATA_START, load_intraday
 from nse.ingest.macro import load_macro
 from nse.ingest.market_live import load_market
 from nse.ingest.prices_live import load_prices
@@ -69,8 +71,18 @@ def run_feature_pipeline(
     log.info("Computing macro features")
     macro_feat = compute_macro_features(prices, macro, market)
 
+    # Intraday features — only available for dates >= LIVE_DATA_START
+    intraday_feat = pd.DataFrame()
+    if end >= LIVE_DATA_START:
+        intraday_start = max(start, LIVE_DATA_START)
+        log.info("Loading intraday snapshots for %s → %s", intraday_start, end)
+        intraday = load_intraday(tickers=tickers, start=intraday_start, end=end)
+        if not intraday.empty:
+            log.info("Computing intraday features (%d snapshots)", len(intraday))
+            intraday_feat = compute_intraday_features(intraday, prices)
+
     log.info("Merging all features")
-    merged = _merge_all(price_feat, liq_feat, event_feat, macro_feat)
+    merged = _merge_all(price_feat, liq_feat, event_feat, macro_feat, intraday_feat)
 
     # Filter to requested date range only
     merged = merged[
@@ -137,11 +149,16 @@ def _merge_all(
     liq_feat: pd.DataFrame,
     event_feat: pd.DataFrame,
     macro_feat: pd.DataFrame,
+    intraday_feat: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     key = ["date", "ticker"]
     df = price_feat.merge(liq_feat, on=key, how="outer")
     df = df.merge(event_feat, on=key, how="outer")
     df = df.merge(macro_feat, on=key, how="left")
+    if intraday_feat is not None and not intraday_feat.empty:
+        intraday_feat = intraday_feat.copy()
+        intraday_feat["date"] = pd.to_datetime(intraday_feat["date"])
+        df = df.merge(intraday_feat, on=key, how="left")
     df["date"] = pd.to_datetime(df["date"])
     return df
 

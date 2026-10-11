@@ -80,6 +80,17 @@ class PriceDaily(Base):
     corporate_action_adjustment_factor = Column(Float, default=1.0)
     tradable_flag = Column(Boolean, default=True)
 
+    # --- Fields from live_stock_data (populated for dates >= 2026-03-31) ---
+    foreign_buy_kes = Column(Float)            # cumulative foreign buy KES (EOD)
+    foreign_sell_kes = Column(Float)           # cumulative foreign sell KES (EOD)
+    total_trades_count = Column(Integer)       # number of trades in session
+    wap = Column(Float)                        # weighted average price
+    market_cap_kes = Column(Float)             # market capitalisation KES
+    bid_price_eod = Column(Float)              # end-of-session best bid
+    offer_price_eod = Column(Float)            # end-of-session best offer
+    total_bid_qty = Column(Float)              # total bid queue depth
+    total_offer_qty = Column(Float)            # total offer queue depth
+
 
 # ---------------------------------------------------------------------------
 # 2. market_daily
@@ -244,6 +255,22 @@ class FeaturesDaily(Base):
     label_binary = Column(Integer)
     label_top_bucket = Column(Integer)
 
+    # --- Order book / microstructure features (from live_stock_data) ---
+    bid_ask_imbalance = Column(Float)          # (bid_qty - offer_qty) / (bid_qty + offer_qty)
+    order_book_depth_ratio = Column(Float)     # total_bid_qty / total_offer_qty
+    spread_bps = Column(Float)                 # (offer - bid) / bid * 10000
+    wap_vs_close_bps = Column(Float)           # (close - wap) / wap * 10000
+    foreign_net_flow_pct = Column(Float)       # (foreign_buy - foreign_sell) / turnover
+    foreign_participation_pct = Column(Float)  # (foreign_buy + foreign_sell) / turnover
+
+    # --- Intraday session features ---
+    session_return_pct = Column(Float)         # (close - open) / open * 100
+    morning_return_pct = Column(Float)         # return through ~noon
+    afternoon_return_pct = Column(Float)       # return from noon to close
+    volume_morning_pct = Column(Float)         # fraction of volume in first half of session
+    intraday_high_low_range_pct = Column(Float) # (high - low) / open * 100
+    session_snapshot_count = Column(Integer)   # number of intraday snapshots (data quality)
+
     # --- Data-quality flags ---
     dq_price_ok = Column(Boolean, default=True)
     dq_features_ok = Column(Boolean, default=True)
@@ -252,7 +279,49 @@ class FeaturesDaily(Base):
 
 
 # ---------------------------------------------------------------------------
-# 6. trades_simulated
+# 6. prices_intraday  (raw snapshots from live_stock_data)
+# ---------------------------------------------------------------------------
+
+class PriceIntraday(Base):
+    """
+    One row per scraped snapshot from live_stock_data.
+    Populated by nse/ingest/live_prices.py for dates >= 2026-03-31.
+    Used to compute intraday features and to run the intraday signal pipeline.
+    """
+    __tablename__ = "prices_intraday"
+    __table_args__ = (
+        UniqueConstraint("scraped_at", "ticker", name="uq_intraday_ts_ticker"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scraped_at = Column(DateTime, nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    ticker = Column(String(16), nullable=False, index=True)
+
+    last_price = Column(Float)
+    bid_price = Column(Float)
+    bid_qty = Column(Float)
+    offer_price = Column(Float)
+    offer_qty = Column(Float)
+    total_bid_qty = Column(Float)
+    total_offer_qty = Column(Float)
+    total_trades = Column(Float)
+    volume = Column(Float)
+    turnover = Column(Float)
+    foreign_buy = Column(Float)
+    foreign_sell = Column(Float)
+    wap = Column(Float)
+    market_cap = Column(Float)
+    day_open = Column(Float)
+    day_high = Column(Float)
+    day_low = Column(Float)
+    day_close = Column(Float)
+    prev_close = Column(Float)
+    net_change = Column(Float)
+
+
+# ---------------------------------------------------------------------------
+# 7. trades_simulated
 # ---------------------------------------------------------------------------
 
 class TradeSimulated(Base):

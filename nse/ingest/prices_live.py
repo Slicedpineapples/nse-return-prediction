@@ -44,6 +44,9 @@ _TZ = "Africa/Nairobi"
 # Date from which stocksdata is available; historical table used before this.
 STOCKSDATA_START = date(2025, 8, 1)
 
+# Date from which live_stock_data is available (richer: order book, foreign flows, WAP).
+LIVE_DATA_START = date(2026, 3, 31)
+
 # ---------------------------------------------------------------------------
 # SQL queries
 # ---------------------------------------------------------------------------
@@ -112,21 +115,33 @@ def ingest_prices_from_stocksdata(
     force: bool = False,
 ) -> int:
     """
-    Ingest daily prices for [start, end], routing to the appropriate source table.
+    Ingest daily prices for [start, end], routing to the appropriate source table:
+      before STOCKSDATA_START  → nse_historical_daily_data
+      STOCKSDATA_START to LIVE_DATA_START-1 → stocksdata
+      >= LIVE_DATA_START       → live_stock_data (richer: order book, foreign flows)
 
     Returns the number of rows upserted.
     """
+    from nse.ingest.live_prices import ingest_live_prices
+
     total = 0
 
-    # Historical segment: before stocksdata coverage
+    # Historical segment
     hist_end = min(end, STOCKSDATA_START - timedelta(days=1))
     if start <= hist_end:
         total += _ingest_historical(start, hist_end)
 
     # stocksdata segment
-    live_start = max(start, STOCKSDATA_START)
+    sd_start = max(start, STOCKSDATA_START)
+    sd_end = min(end, LIVE_DATA_START - timedelta(days=1))
+    if sd_start <= sd_end:
+        total += _ingest_from_stocksdata(sd_start, sd_end)
+
+    # live_stock_data segment (EOD aggregate only; intraday stored separately)
+    live_start = max(start, LIVE_DATA_START)
     if live_start <= end:
-        total += _ingest_from_stocksdata(live_start, end)
+        n_daily, _ = ingest_live_prices(live_start, end, force=force, intraday=False)
+        total += n_daily
 
     return total
 
