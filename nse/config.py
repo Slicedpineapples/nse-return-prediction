@@ -82,12 +82,9 @@ LIQUIDITY = {
 # ---------------------------------------------------------------------------
 
 COSTS = {
-    # Broker commission (NSE market ~1.7–2% total round-trip; use conservative)
-    "commission_bps": 170,           # 170 bps one-way
-
-    # Government levies and stamp duty included in above estimate
-    # (NSE charges: 0.12% NSE fee + CDS levy + stamp duty + broker commission)
-    # The 170 bps absorbs all execution-side fees conservatively.
+    # Verified from live broker statement: brokerage + statutory charges = 184 bps one-way
+    # (brokerage KES 1,554.80 + statutory KES 648.31 on KES 119,600 order = 1.842%)
+    "commission_bps": 184,
 
     # Slippage by liquidity bucket (bps, one-way)
     "slippage_liquid_bps": 30,
@@ -98,9 +95,12 @@ COSTS = {
     "impact_adv_fraction": 0.05,     # never trade >5% of 20d ADV
 
     # Total round-trip cost scenarios (bps)
-    "scenario_optimistic_bps": 300,
-    "scenario_base_bps": 400,
-    "scenario_stressed_bps": 600,
+    # Floor is ~368 bps (2 × 184 bps verified fees, zero slippage).
+    # Optimistic adds minimal slippage on a liquid name; base adds mid slippage;
+    # stressed adds thin-book slippage + adverse price movement.
+    "scenario_optimistic_bps": 400,   # 368 fees + ~30 bps slippage
+    "scenario_base_bps": 500,         # 368 fees + ~130 bps slippage
+    "scenario_stressed_bps": 700,     # 368 fees + ~330 bps slippage + impact
 }
 
 # ---------------------------------------------------------------------------

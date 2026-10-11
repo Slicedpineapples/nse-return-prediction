@@ -123,7 +123,11 @@ def run_daily_pipeline(
         return pd.DataFrame()
 
     today_features = features[features["date"] == pd.Timestamp(as_of)]
-    scores = ranker.predict(today_features)
+    if "dq_tradable" in today_features.columns:
+        tradable_today = today_features[today_features["dq_tradable"] == True]
+    else:
+        tradable_today = today_features
+    scores = ranker.predict(tradable_today)
 
     # Step 6: Apply risk filters
     _step("6/7 Applying risk filters", verbose)

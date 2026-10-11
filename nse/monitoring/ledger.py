@@ -87,9 +87,12 @@ def backfill_actuals(
 ) -> int:
     """
     Fill actual_return_3d / actual_net_alpha_3d for signals whose 3-day
-    window has closed (i.e. signal_date <= as_of - 3 trading days).
+    window has closed (i.e. signal_date + 3 TRADING days of data exists).
 
     Uses prices_daily and market_daily from the DB.
+
+    FIXED: Changed from calendar days (3) to proper trading-day wait.
+           Signals are backfilled only once we have 3 trading days of subsequent prices.
 
     Returns number of rows updated.
     """
@@ -101,13 +104,20 @@ def backfill_actuals(
 
     # signals that need actuals: outcome_filled_at is NULL and old enough
     cutoff = as_of - timedelta(days=lookback_days)
-    fill_before = as_of - timedelta(days=3)  # conservative: 3 calendar days
+
+    # FIXED: Load market data to identify trading days, not just use calendar days
+    market = load_market(start=cutoff, end=as_of)
+    if market.empty:
+        log.warning("No market data available for trading-day detection")
+        trading_dates = []
+    else:
+        market["date"] = pd.to_datetime(market["date"]).dt.date
+        trading_dates = sorted(set(market["date"]))
 
     with session_scope() as s:
         orm_rows = (
             s.query(SignalHistory)
             .filter(SignalHistory.outcome_filled_at.is_(None))
-            .filter(SignalHistory.signal_date <= fill_before)
             .filter(SignalHistory.signal_date >= cutoff)
             .all()
         )
@@ -121,12 +131,24 @@ def backfill_actuals(
         log.info("No signal rows need actuals backfill")
         return 0
 
-    signal_dates = sorted({r["signal_date"] for r in rows})
-    tickers = list({r["ticker"] for r in rows})
+    # Filter to signals where 3+ trading days of data exist after signal date
+    eligible_rows = []
+    for row in rows:
+        sig_date = row["signal_date"]
+        future_trading_dates = [d for d in trading_dates if d > sig_date]
+        if len(future_trading_dates) >= 3:
+            eligible_rows.append(row)
+
+    if not eligible_rows:
+        log.info("No signals have 3 trading days of data yet")
+        return 0
+
+    signal_dates = sorted({r["signal_date"] for r in eligible_rows})
+    tickers = list({r["ticker"] for r in eligible_rows})
 
     # Load prices with a generous forward buffer
     price_start = min(signal_dates) - timedelta(days=5)
-    price_end = max(signal_dates) + timedelta(days=15)
+    price_end = as_of
     prices = load_prices(tickers=tickers, start=price_start, end=price_end)
     market = load_market(start=price_start, end=price_end)
 
@@ -150,7 +172,7 @@ def backfill_actuals(
     now = datetime.utcnow()
 
     with session_scope() as s:
-        for row in rows:
+        for row in eligible_rows:
             sig_date = pd.Timestamp(row["signal_date"])
             tkr_prices = prices[prices["ticker"] == row["ticker"]].copy()
             if tkr_prices.empty:
@@ -168,9 +190,13 @@ def backfill_actuals(
 
             actual_ret_3d = float(close_t3 / close_t0 - 1)
 
-            # Benchmark: 3d return ending at t+3 (fall back to 0 if missing/NaN)
-            _b = bench_map.get(t3_date, 0.0)
-            bench_ret = 0.0 if (_b is None or _b != _b) else float(_b)
+            # Benchmark: 3d return ending at t+3
+            # FIXED: Skip rows with missing benchmark data instead of silently assuming 0
+            _b = bench_map.get(t3_date)
+            if _b is None or _b != _b:  # NaN check
+                log.debug("Skipping: no benchmark data for %s on %s", row["ticker"], t3_date)
+                continue
+            bench_ret = float(_b)
             actual_alpha = actual_ret_3d - bench_ret - BASE_COST_FRACTION
 
             pred_edge = row["predicted_edge_bps"]

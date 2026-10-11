@@ -106,11 +106,16 @@ def _ticker_event_features(
         d = row["date"]
         rec: dict = {"date": d, "ticker": ticker}
 
-        # --- Forward-looking flags (earnings announced in advance) ---
-        for horizon, col in [(1, "earnings_in_1d"), (3, "earnings_in_3d"), (5, "earnings_in_5d")]:
-            future_window = (pub_dates >= d) & (pub_dates <= d + pd.Timedelta(days=horizon))
-            future_earnings = evt_grp[future_window & (evt_grp["event_type"] == "earnings")]
-            rec[col] = int(len(future_earnings) > 0)
+        # --- FIXED: Past-only event detection (no forward-looking bias) ---
+        # For each horizon (1d, 3d, 5d), check for earnings that OCCURRED in the past,
+        # not future-scheduled events. This avoids leaking future information.
+        past_1d_window = (pub_dates >= d - pd.Timedelta(days=1)) & (pub_dates <= d)
+        past_3d_window = (pub_dates >= d - pd.Timedelta(days=3)) & (pub_dates <= d)
+        past_5d_window = (pub_dates >= d - pd.Timedelta(days=5)) & (pub_dates <= d)
+        
+        rec["earnings_in_1d"] = int((evt_grp[past_1d_window & (evt_grp["event_type"] == "earnings")]).empty == False)
+        rec["earnings_in_3d"] = int((evt_grp[past_3d_window & (evt_grp["event_type"] == "earnings")]).empty == False)
+        rec["earnings_in_5d"] = int((evt_grp[past_5d_window & (evt_grp["event_type"] == "earnings")]).empty == False)
 
         # --- Today's event flags ---
         today_evts = evt_grp[pub_dates == d]

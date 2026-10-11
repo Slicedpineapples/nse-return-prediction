@@ -102,11 +102,24 @@ class NSERanker:
         recency_half_life_days : if set, apply exponential sample weights so
             that a row recency_half_life_days old has half the weight of today.
             E.g. 90 means ~3 months half-life.  None disables weighting.
+        
+        FIXED: Added data-quality filtering to prevent training on corrupt/incomplete data.
         """
+        if "dq_labels_ok" in train_df.columns:
+            n_before = len(train_df)
+            train_df = train_df[train_df["dq_labels_ok"] == True].copy()
+            log.info("Filtered training data to dq_labels_ok=True (%d/%d rows kept)",
+                     len(train_df), n_before)
+        if val_df is not None and "dq_labels_ok" in val_df.columns:
+            val_df = val_df[val_df["dq_labels_ok"] == True].copy()
+
         feature_cols = _get_feature_cols(train_df)
-        self.feature_cols = feature_cols
 
         X_train, y_train = _prepare_xy(train_df, feature_cols, primary_label)
+        # Drop columns that are entirely NaN in the training set so the scaler
+        # never sees them. self.feature_cols records exactly what was fit.
+        X_train = X_train.dropna(axis=1, how="all")
+        self.feature_cols = list(X_train.columns)
         if X_train.empty or y_train.isna().all():
             raise ValueError("Insufficient training data after filtering")
 
@@ -124,19 +137,20 @@ class NSERanker:
                 sample_weight.min(),
             )
 
-        # Fit scaler
+        # Fit scaler — use self.feature_cols (NaN-dropped) not the original feature_cols
         X_train_scaled = pd.DataFrame(
             self.scaler.fit_transform(X_train),
-            columns=feature_cols,
+            columns=self.feature_cols,
             index=X_train.index,
         )
 
         eval_set = None
         if val_df is not None and not val_df.empty:
-            X_val, y_val = _prepare_xy(val_df, feature_cols, primary_label)
+            X_val, y_val = _prepare_xy(val_df, self.feature_cols, primary_label)
+            X_val = X_val.reindex(columns=self.feature_cols, fill_value=0)
             X_val_scaled = pd.DataFrame(
                 self.scaler.transform(X_val),
-                columns=feature_cols,
+                columns=self.feature_cols,
                 index=X_val.index,
             )
             eval_set = [(X_val_scaled, y_val)]
@@ -179,13 +193,20 @@ class NSERanker:
         Returns a DataFrame with columns: date, ticker, score, top_bucket_prob.
         Score is the predicted net alpha (regressor output), normalised
         cross-sectionally per day.
+        
+        Callers apply any required tradability or feature-quality filters.
         """
         if not self.is_fitted:
             raise RuntimeError("Call .fit() before .predict()")
 
-        X, _ = _prepare_xy(df, self.feature_cols, label_col=None)
+        df_clean = df.copy()
+        X, _ = _prepare_xy(df_clean, self.feature_cols, label_col=None)
         if X.empty:
+            log.warning("No scoreable rows in input")
             return pd.DataFrame(columns=["date", "ticker", "score", "top_bucket_prob"])
+
+        # Align to exactly the columns the scaler was fit on; fill any missing with 0
+        X = X.reindex(columns=self.feature_cols, fill_value=0)
 
         X_scaled = pd.DataFrame(
             self.scaler.transform(X),
@@ -194,7 +215,7 @@ class NSERanker:
         )
 
         scores = self.regressor.predict(X_scaled)
-        result = df.loc[X.index, ["date", "ticker"]].copy()
+        result = df_clean.loc[X.index, ["date", "ticker"]].copy()
         result["raw_score"] = scores
 
         # Normalise per day to [0, 1]
@@ -272,7 +293,7 @@ def _prepare_xy(
     else:
         y = pd.Series(dtype=float)
 
-    # Only keep feature cols that exist
+    # Only keep feature cols that exist in this slice
     available = [c for c in feature_cols if c in df.columns]
     X = df[available].copy()
 
