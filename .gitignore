@@ -58,5 +58,17 @@ NSE_Alpha_*.tex
 NSE_Alpha_*.pdf
 NSE_Alpha_*.md
 
-alembic/
 *.ini
+!alembic.ini
+# Public research source and generated tables
+!research/publication/paper.tex
+!research/publication/tables/*.tex
+# Local research inputs and interrupted exports
+research/outputs/reproduction/features_daily_snapshot*.csv
+research/outputs/reproduction/feature_chunks/
+research/outputs/phases_9_15/features_2025_2026_oos.csv
+# LaTeX build intermediates
+*.aux
+*.bbl
+*.blg
+*.out

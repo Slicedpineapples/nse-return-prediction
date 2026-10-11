@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "Please cite this software and the accompanying preprint when using this work."
+title: "NSE return prediction: research code and experiment artifacts"
+authors:
+  - family-names: Nyabuto
+    given-names: Felix
+repository-code: "https://github.com/Slicedpineapples/nse-return-prediction"
+type: software
+version: 0.1.0

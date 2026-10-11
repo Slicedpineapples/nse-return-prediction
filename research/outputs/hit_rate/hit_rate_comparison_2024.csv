@@ -1,0 +1,5 @@
+metric,count,n,rate
+unconditional_security_day_positive_rate,348,3048,0.1141732283464567
+lightgbm_top1_positive_rate,43,254,0.16929133858267717
+lightgbm_top2_equal_weight_positive_rate,21,254,0.08267716535433071
+lightgbm_top3_equal_weight_positive_rate,17,254,0.06692913385826772

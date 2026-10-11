@@ -1,0 +1,5 @@
+audit_item,finding,risk,status
+Universe construction,The reproduced snapshot contains 12 seed tickers throughout 2019-2024.,"If these were selected using present-day liquidity or survival, results may overstate historical investability.",risk_identified_not_eliminated
+Delisted/failed securities,No delisted or failed NSE securities are present in the local reproduction snapshot.,Absence of failures is a survivorship-bias risk for claims about the full NSE.,not_a_full_exchange_universe
+Per-ticker continuity,12 of 12 tickers have the modal row count.,Continuity supports balanced-panel analysis but does not prove ex-ante investability.,checked
+Tradability flags,"The exported snapshot has dq_tradable false for all rows, so tradability cannot be audited from that flag.",Portfolio capacity and liquidity conclusions must use separate liquidity fields or source price data.,data_quality_limitation

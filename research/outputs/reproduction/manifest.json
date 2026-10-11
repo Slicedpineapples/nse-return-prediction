@@ -1,0 +1,28 @@
+{
+  "label": "label_3d_net_alpha",
+  "model_config": {
+    "primary_label": "label_3d_net_alpha",
+    "secondary_labels": [
+      "label_1d_net_alpha",
+      "label_5d_net_alpha",
+      "label_binary",
+      "label_top_bucket"
+    ],
+    "train_start": "2019-01-01",
+    "validate_start": "2023-01-01",
+    "test_start": "2024-01-01",
+    "retrain_frequency": "monthly",
+    "window_type": "expanding",
+    "rolling_window_years": 3
+  },
+  "feature_rows": 18240,
+  "date_min": "2019-01-02 00:00:00",
+  "date_max": "2024-12-31 00:00:00",
+  "summary": {
+    "mean_val_ic": 0.09515188088696319,
+    "mean_test_ic": 0.08524269047048427,
+    "positive_test_months": 11,
+    "n_months": 12,
+    "mean_test_hit_rate": 0.16966572392773768
+  }
+}

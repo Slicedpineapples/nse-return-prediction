@@ -1,302 +1,75 @@
-# ml.nse — NSE Daily Alpha Ranking System
+# NSE return prediction
 
-A daily batch pipeline that ranks a small universe of liquid Nairobi Securities Exchange (NSE) equities by expected net return after costs over the next 1–3 trading days.
+Research code and experiment artifacts supporting Felix Nyabuto’s preprint **Cross-Sectional Return Prediction in a Small, Illiquid Equity Market: Machine Learning Evidence from the Nairobi Securities Exchange**.
 
-**MVP scope:** long-only, top 5 names, human approval required, no autonomous execution.
+The study finds positive cross-sectional return-ranking information in a selected 12-security NSE universe. The tested portfolio rules perform poorly after trading costs. These results support ranking predictability within the sample; they do not demonstrate an implementable profitable strategy.
 
----
+## Paper and evidence
 
-## How it works
+- [Paper (PDF)](research/publication/nse.pdf) — the accompanying preprint.
+- [Results and artifact map](research/RESULTS_SUMMARY.md).
+- [Reproduction instructions](research/REPRODUCING.md).
+- [Claim audit](research/publication/CLAIM_AUDIT.md).
+- [Manuscript source](research/publication/paper.tex) and [figure/table generator](research/publication/scripts/generate_assets.py).
 
-The system answers one question each trading day: *which 5 stocks have the best expected return after costs over the next 3 days?*
-
-It has four layers:
-
-**1. Data** — OHLCV prices are read directly from the live `nse` PostgreSQL database (`stocksdata` TimescaleDB hypertable, scraped every ~10 seconds). Announcements and macro data are ingested each morning.
-
-**2. Features** — ~50 numeric features are computed per ticker per day: price/volume signals, liquidity/microstructure flags, event/calendar markers, and macro inputs. Company announcements are sent through Claude to extract structured fields (sentiment, materiality, surprise) which become additional numeric features.
-
-**3. Model** — A LightGBM ranker trained on `label_3d_net_alpha = future_3d_return − benchmark_return − round_trip_cost` ranks tickers cross-sectionally each day. Training uses strict walk-forward validation (train 2019–2022, validate 2023, test 2024) with monthly expanding-window retraining.
-
-**4. Risk + output** — A rule-based risk engine filters the ranked list (liquidity, score threshold, stale-price flag, drawdown kill-switch). The approved names are written to a ranked signal report for human review.
-
-### Daily flow
-
-```
-After NSE close / next morning
-  │
-  ├─ 1. Aggregate daily OHLCV from stocksdata (nse DB)
-  ├─ 2. Ingest new company announcements
-  ├─ 3. LLM extraction on new filings (Claude API)
-  ├─ 4. Build features_daily
-  ├─ 5. Score all tradable names with saved model
-  ├─ 6. Risk engine filters candidates
-  └─ 7. Write signal_YYYY-MM-DD.csv  →  human review
-```
-
----
-
-## Databases
-
-The system uses two PostgreSQL databases on the same host:
-
-| Env var | Database | Purpose |
-|---|---|---|
-| `DB_NAME` | `ml_nse` | ML pipeline tables: `prices_daily`, `features_daily`, model outputs |
-| `DB_NAME2` | `nse` | Live scraper database: `stocksdata` (TimescaleDB), `nse_historical_daily_data` |
-
-`nse-ingest` reads from `nse` and writes aggregated daily OHLCV into `ml_nse`.
-
-### Data sources
-
-| Data | Source |
+| Experiment | Reported result |
 |---|---|
-| Daily prices (OHLCV) | `stocksdata` hypertable in `nse` DB — aggregated to daily bars |
-| Market stats (NSE 20, NASI, sector indices) | NSE website scraping |
-| Company announcements & corporate actions | NSE website scraping |
-| KES/USD exchange rate | Yahoo Finance (`KESUSD=X`) via yfinance |
-| T-bill yields (91d, 182d, 364d) | CBK website scraping |
-| LLM event extraction | Claude API (`claude-opus-4-6`) — skip with `--skip-llm` |
+| 2024 Random Forest comparison | Mean daily Spearman IC 0.133; positive months 12/12 |
+| 2024 LightGBM comparison | Mean daily IC 0.0846; positive months 11/12 |
+| Price/returns-only ablation | Mean daily IC 0.125, versus 0.111 for full features under that protocol |
+| LLM/event permutation importance | Zero measured incremental IC drop in this historical window |
+| 2025–March 2026 retrospective extended OOS | Mean daily IC 0.0815; positive months 11/15 |
+| Top-1 overlapping three-day portfolio, 400 bps costs | Approximately −94.2% cumulative return in 2024 |
 
----
+The model comparison and feature ablation use separate fitting protocols; their LightGBM values should not be treated as the same experiment. Extended OOS is retrospective, not a pristine live holdout.
 
-## Setup
-
-### Requirements
-
-- Python 3.11+
-- Access to the `nse` and `ml_nse` PostgreSQL databases
-- An Anthropic API key (for LLM extraction; skippable with `--skip-llm`)
-
-### Install
+## Getting started
 
 ```bash
-git clone <repo>
-cd ml.nse
-
+git clone https://github.com/Slicedpineapples/nse-return-prediction.git
+cd nse-return-prediction
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,research]"
+pytest -q
 ```
 
-### Environment variables
+To rebuild the paper’s figures and tables from the included derived outputs:
 
 ```bash
-cp .env.example .env
+python research/publication/scripts/generate_assets.py
 ```
 
-Edit `.env`:
-
-```env
-# Required for LLM extraction
-ANTHROPIC_API_KEY=sk-ant-...
-
-# PostgreSQL — ML pipeline database
-DB_HOST=192.168.0.116
-DB_PORT=5432
-DB_NAME=ml_nse
-DB_USER=postgres
-DB_PASS=secret
-DB_SSLMODE=disable
-
-# Live scraper database (source of price data)
-DB_NAME2=nse
-```
-
-### Initialise the ML database
+To compile the manuscript, install a LaTeX distribution with `pdflatex` and `bibtex`, then run:
 
 ```bash
-python scripts/init_db.py
+make -C research/publication paper
 ```
 
-This creates all tables in `ml_nse`. The `nse` database already exists and is managed separately.
+Retraining requires feature snapshots that are not distributed here. See [reproduction instructions](research/REPRODUCING.md) for input paths, execution order, and limitations. No database credentials or API keys are needed to inspect the derived results or regenerate figures and tables.
 
----
+## Repository guide
 
-## Shell completion & man page
-
-### Tab completion
-
-**Zsh** (add to `~/.zshrc` before `compinit`):
-
-```zsh
-fpath=(/path/to/ml.nse/scripts/completions $fpath)
-autoload -Uz compinit && compinit
-```
-
-Or source directly for the current session:
-
-```zsh
-source ml.nse/scripts/completions/_nse
-```
-
-**Bash** (add to `~/.bashrc` or `~/.bash_profile`):
-
-```bash
-source /path/to/ml.nse/scripts/completions/nse_completions.bash
-```
-
-Both scripts complete all flags for every `nse-*` command, including
-`--scenario (optimistic|base|stressed)` choices.
-
-### Man page
-
-Install locally:
-
-```bash
-# view without installing
-man docs/nse.1
-
-# install to your local man path
-mkdir -p ~/.local/share/man/man1
-cp docs/nse.1 ~/.local/share/man/man1/
-man nse
-```
-
----
-
-## Running the pipeline
-
-### 1. Backfill historical data (once)
-
-```bash
-# Aggregate prices from stocksdata + ingest market stats, announcements, macro
-nse-ingest --start 2019-01-01 --end 2024-12-31
-
-# Build features and labels for that period
-nse-features --start 2019-01-01 --end 2024-12-31
-```
-
-### 2. Train the model
-
-```bash
-# Walk-forward evaluation across monthly windows, then save production model
-nse-train
-
-# Skip walk-forward, train production model only (faster)
-nse-train --prod-only
-```
-
-Saves model to `models/saved/ranker_production.pkl`.
-
-### 3. Validate on recent history
-
-```bash
-nse-backtest --start 2024-01-01 --scenario base
-nse-backtest --start 2024-01-01 --scenario stressed
-```
-
-### 4. Daily production run
-
-```bash
-# Full pipeline: ingest → LLM → features → score → risk → report
-nse-pipeline
-
-# Skip LLM to save API cost (reuses yesterday's extractions)
-nse-pipeline --skip-llm
-
-# Run for a specific past date
-nse-pipeline --date 2024-11-15
-```
-
-Output is printed to the terminal as a ranked table and saved to:
-
-```
-reports/output/signal_YYYY-MM-DD.csv
-reports/output/signal_YYYY-MM-DD.json
-```
-
-### Individual commands
-
-```bash
-nse-ingest   --start 2025-03-23 --end 2025-03-23   # ingest one day
-nse-features --start 2025-03-23                     # features for one day
-nse-signal   --skip-ingest                          # score only, no re-ingest
-```
-
----
-
-## Project structure
-
-```
-ml.nse/
-├── nse/
-│   ├── config.py              # Universe, cost params, risk limits, DB URLs
-│   ├── cli.py                 # Click CLI entry points
-│   ├── db/
-│   │   └── schema.py          # 6 SQLAlchemy tables (ml_nse)
-│   ├── ingest/
-│   │   ├── prices_live.py     # Aggregate daily OHLCV from stocksdata (nse DB)
-│   │   ├── prices.py          # NSE website scraper (legacy fallback)
-│   │   ├── market.py          # NSE market stats & indices
-│   │   ├── announcements.py   # Company announcements & corporate actions
-│   │   └── macro.py           # KES/USD, T-bills, CBK rate, inflation
-│   ├── features/
-│   │   ├── price_features.py      # Returns, volatility, beta, z-scores
-│   │   ├── liquidity_features.py  # Amihud, stale-price, ADV, tradability
-│   │   ├── event_features.py      # Event flags, LLM aggregations
-│   │   ├── macro_features.py      # FX changes, T-bill spreads, regimes
-│   │   └── pipeline.py            # Orchestrates all feature groups → DB
-│   ├── labels/
-│   │   └── returns.py         # Net alpha labels (1d / 3d / 5d)
-│   ├── models/
-│   │   ├── ranker.py          # LightGBM regressor + classifier
-│   │   └── walk_forward.py    # Strict temporal cross-validation
-│   ├── backtest/
-│   │   ├── engine.py          # Daily long-only simulation
-│   │   ├── costs.py           # Three-scenario cost model
-│   │   └── metrics.py         # Sharpe, drawdown, IC, hit rate
-│   ├── llm/
-│   │   └── extractor.py       # Claude API: event classification & extraction
-│   ├── risk/
-│   │   └── rules.py           # Hard filters: liquidity, kill switch, blackout
-│   └── pipeline/
-│       └── daily.py           # End-to-end daily batch orchestration
-├── scripts/
-│   └── init_db.py             # Create all tables in ml_nse
-├── tests/
-│   └── test_features.py       # 16 unit tests
-├── data/
-│   └── raw/                   # Cached downloads and manual drop-ins
-├── models/saved/              # Serialised model artefacts
-├── reports/output/            # Daily signal CSV/JSON reports
-├── .env.example
-└── pyproject.toml
-```
-
----
-
-## Universe
-
-12 seed tickers (configurable in `nse/config.py`):
-
-`SCOM` `EQTY` `KCB` `COOP` `BAT` `ABSA` `SCBK` `JUB` `EABL` `BAMB` `NMG` `BRIT`
-
-A ticker is only eligible on a given day if it passes the daily tradability filter: median value traded over last 60 days > KES 1M, traded on ≥ 80% of sessions, and today's intraday range is not extreme.
-
----
-
-## Risk limits
-
-| Limit | Value |
+| Path | Purpose |
 |---|---|
-| Max positions | 5 |
-| Max single-name weight | 20% |
-| Max daily portfolio turnover | 40% |
-| Max order size | 5% of 20d ADV |
-| Portfolio drawdown kill-switch | 15% |
-| Min model score to trade | 0.55 |
+| `nse/` | Ingestion, features, labels, ranking, backtesting, risk and monitoring |
+| `research/scripts/` | Walk-forward reproduction and experiment analyses |
+| `research/outputs/` | Derived predictions, metrics and experiment manifests |
+| `research/publication/` | Paper, source, references and generated figures/tables |
+| `docs/operations.md` | Database setup and daily/intraday CLI usage |
+| `docs/interpreting_results.md` | Operational output interpretation |
+| `tests/` | Automated feature checks |
 
----
+The daily pipeline is advisory and does not place orders. The intraday overlay is a later heuristic extension; the paper does not validate its profitability or same-session predictive performance.
 
-## Cost model
+## Scope and limitations
 
-Round-trip cost scenarios used in backtesting and label construction:
+The main snapshot covers 18,240 security-day rows from 2019–2024, with 3,048 observations across 254 test days in 2024. The universe is ABSA, BAMB, BAT, BRIT, COOP, EABL, EQTY, JUB, KCB, NMG, SCBK and SCOM. It is a seed universe, not a reconstructed historical exchange universe; survivorship and selection risk remain unresolved.
 
-| Scenario | Round-trip bps |
-|---|---|
-| Optimistic | 300 |
-| Base | 400 |
-| Stressed | 600 |
+Historical benchmark coverage is incomplete. The implementation name `label_3d_net_alpha` does not guarantee clean benchmark-adjusted alpha for every row. Missing-value handling, macro release timing and overlapping label boundaries remain methodological audit concerns. See [validation status](research/FINAL_VALIDATION.md).
 
-Costs include broker commission, NSE/CDS levies, stamp duty, and slippage scaled by order size relative to ADV.
+Runtime costs currently use 400/500/700 bps scenarios and a 500 bps base label cost. The paper’s highlighted portfolio experiment uses 400 bps; frozen snapshot labels are not regenerated by changing runtime configuration.
+
+## Citation and reuse
+
+Use [CITATION.cff](CITATION.cff) for software citation metadata and cite the accompanying preprint by its title and author. No DOI is assigned in this repository. No reuse license has been selected; public visibility alone does not grant an open-source license or rights to underlying market data.

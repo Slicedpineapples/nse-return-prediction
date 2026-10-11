@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\caption{Model comparison on the 2024 retrospective out-of-sample period.}
+\label{tab:model_comparison}
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Model & Mean IC & Median IC & ICIR & Pos. months & Top-1 hit \\
+\midrule
+Random Forest & 0.133 & 0.155 & 0.411 & 12/12 & 16.1\% \\
+LightGBM & 0.085 & 0.087 & 0.279 & 11/12 & 16.9\% \\
+1-day reversal & 0.062 & 0.042 & 0.202 & 8/12 & 16.5\% \\
+3-day reversal & 0.056 & 0.045 & 0.189 & 9/12 & 16.9\% \\
+Ridge regression & 0.019 & 0.038 & 0.060 & 8/12 & 16.1\% \\
+Linear regression & 0.019 & 0.038 & 0.060 & 8/12 & 16.1\% \\
+Random ranking & -0.006 & 0.000 & -0.021 & 6/12 & 9.1\% \\
+5-day momentum & -0.049 & -0.056 & -0.157 & 3/12 & 14.6\% \\
+20-day momentum & -0.052 & -0.046 & -0.166 & 4/12 & 13.4\% \\
+\bottomrule
+\end{tabular}
+\end{table}
