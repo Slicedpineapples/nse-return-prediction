@@ -38,6 +38,24 @@ These commands replace research outputs. Preserve a copy of the published output
 
 ## Reproduction limits
 
-Dependencies use lower bounds rather than an exact environment lock. Historical observed package versions are in `REPRODUCIBILITY_AUDIT.md`; numerical equality across environments is not guaranteed. Saved snapshot labels may differ from labels regenerated with current cost configuration. The original monthly IC claim of 0.0911 was not reproduced; the saved reproduction yields 0.0852.
+Dependencies use lower bounds rather than an exact environment lock. The observed environment from the 2026-10-04 audit was Python 3.14.5 on macOS arm64, with NumPy 2.4.3, pandas 3.0.1, SciPy 1.17.1, scikit-learn 1.8.0, LightGBM 4.6.0, SQLAlchemy 2.0.48 and psycopg2-binary 2.9.11. This records the historical environment rather than a tested dependency lock; numerical equality across environments is not guaranteed. Saved snapshot labels may differ from labels regenerated with current cost configuration. The original monthly IC claim of 0.0911 was not reproduced; the saved reproduction yields 0.0852.
 
 The selected universe, missing benchmark history, slice-dependent imputation, macro release timing and overlapping-label split boundaries require further methodological review. Rebuilding tables is artifact reproduction, not independent validation of the underlying data or research design.
+
+## Validation and methodological limits
+
+Release checks passed: 16 existing feature tests, Python source compilation, intraday CLI help, publication asset generation and LaTeX compilation. These packaging checks do not independently validate the research design. Full model retraining was not repeated for the release.
+
+The historical export initially stalled; monthly chunk exports subsequently produced the complete local 2019–2024 snapshot. Partial exports must not be used as experiment inputs. Original inputs lack recorded checksums and complete point-in-time provenance.
+
+Specific audit concerns:
+
+- The scaler is fitted on training rows, but the operational ranker's imputation uses medians from whichever slice it receives. Validation/test medians therefore use evaluation-slice information; training-only imputation needs review.
+- Macro observation dates do not encode release timestamps. Corporate-action publication and ex-date availability also need review.
+- Overlapping forward labels can cross temporal split boundaries; split purging needs review.
+- The fixed 12-security seed universe does not establish historical selection or eliminate survivorship bias.
+- Label generation substitutes zero for missing benchmark returns, while monitoring skips outcomes without benchmark data. Alpha terminology must reflect that difference.
+
+A constant cost deducted from every security on a date does not change cross-sectional Spearman ranks. It changes positive-label hit rates and economic returns. Negative labels alone do not establish a loss of ranking information.
+
+Claims are restricted to statistical ranking predictability within the studied universe. The 2025–2026 evaluation is retrospective, and richer features or LLM/event variables have no demonstrated incremental predictive value in the completed experiments. Statistical significance refers to the reported HAC/Newey–West IC inference; it does not establish deployable alpha or profitability. See [results and supporting artifacts](RESULTS_SUMMARY.md) for the evidence behind each numerical claim.

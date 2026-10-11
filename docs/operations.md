@@ -336,3 +336,35 @@ Shell completion files:
 - Bash: `scripts/completions/nse_completions.bash`
 
 For an existing pre-intraday database, back it up and run `alembic upgrade head` instead of stamping it. SQLite supports local schema development; source ingestion requires PostgreSQL access.
+
+## Interpreting outputs
+
+Daily `score` is normalized to 0–1 within that day's universe. It measures relative model ranking, not the probability of a positive return. `expected_edge_after_costs_bps` uses the illustrative conversion `(score - 0.5) * 1000 - estimated_cost_bps`; it is not a calibrated return forecast. `recommended_action` identifies a model shortlist after pipeline filtering. The system does not place orders.
+
+| Output | Interpretation |
+|---|---|
+| Walk-forward `val_IC` / `test_IC` | Spearman correlation of scores with the target in validation/test periods. Positive IC indicates ranking association; it does not prove leakage-free evaluation or profitability. |
+| Walk-forward `test_hit` | Fraction of evaluated days whose top-ranked security has a positive target label, including its configured benchmark/cost adjustments. |
+| `n_train` | Training sample size. Growth is expected in an expanding window but does not establish absence of leakage. |
+| Backtest total return / drawdown | Net simulated performance and worst peak-to-trough loss under the selected implementation and cost assumptions. |
+| Backtest hit rate / gain-loss ratio | Frequency and size of gains versus losses. Hit rate alone does not determine profitability. |
+| Monitoring IC / rolling IC | Association between scores and realized outcomes; monitor degradation over time. Operational monitoring differs from the paper's daily cross-sectional, dependence-aware inference. |
+| Monitoring approved hit rate | Fraction of approved signals with positive realized three-day net alpha. |
+| Calibration quintiles | Whether higher score groups have higher average realized outcomes. Ordered groups do not establish calibrated return probabilities. |
+
+Compare backtests across the configured 400/500/700 bps scenarios. Losses under the optimistic scenario can reflect costs, weak signals or the implementation rule; the scenario comparison alone cannot isolate the cause. The paper's sleeve simulation and operational `nse-backtest` are distinct implementations.
+
+Intraday `Score` blends daily ranking with heuristic overlays. `OB Imbal` measures bid/offer quantity imbalance; `Fgn Flow%` is net foreign buying divided by session turnover; `Sess Ret%` is return from open; `Spread bps` measures the quoted bid/offer gap; and `WAP vs Cls` compares the latest price with weighted average price. These are descriptive inputs, with no established same-session predictive performance in the paper. Check snapshot timestamps and coverage when comparing sessions.
+
+## Data integrity and diagnostics
+
+Earnings flags retain the historical names `earnings_in_1d/3d/5d`, but now look backward over publication windows. Training and validation filter on `dq_labels_ok`; the daily pipeline filters scoring inputs on `dq_tradable`. The ranker does not itself gate predictions on `dq_features_ok`.
+
+Outcome backfill requires three subsequent observed trading days, respects its requested as-of date and skips missing benchmark returns. Training-label benchmark fallback still differs from monitoring. Diagnose signal coverage, calendar coverage, data-quality flags and label distributions with:
+
+```bash
+python -m scripts.diagnose_signals
+nse-monitor --start 2026-01-01 --backfill
+```
+
+If experimenting with longer holding horizons or separating gross-return forecasts from execution costs, regenerate labels, align the model and holding-period settings, retrain, and compare ranking metrics with economic results. Lowering a configured cost assumption does not establish lower achievable execution costs. Use the isolated [research workflow](../research/REPRODUCING.md) when reproducing paper results.
