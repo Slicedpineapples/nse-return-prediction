@@ -49,7 +49,6 @@ logs/
 # Reports output
 reports/output/
 
-.claude
 .pytest_cache/
 tmp/
 
